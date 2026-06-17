@@ -1,4 +1,4 @@
- const express = require('express');
+const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 require('dotenv').config();
@@ -8,6 +8,11 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Routes
+app.use('/api/songs', require('./routes/songs'));
+app.use('/api/artists', require('./routes/artists'));
+app.use('/api/users', require('./routes/users'));
 
 // Test route
 app.get('/', (req, res) => {
