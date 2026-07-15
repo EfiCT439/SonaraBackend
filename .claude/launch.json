@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sonara-backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "port": 5000
+    }
+  ]
+}
