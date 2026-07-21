@@ -4,6 +4,13 @@ const axios = require('axios');
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
 
+// meta/musicgen is a community model, not one of Replicate's "official models".
+// The /v1/models/{owner}/{name}/predictions shortcut only serves official models
+// and 404s for everything else, so predictions must be created against a pinned
+// version id via /v1/predictions instead.
+// To refresh: GET /v1/models/meta/musicgen and copy `latest_version.id`.
+const MUSICGEN_VERSION = '671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb';
+
 function getHeaders() {
   return {
     Authorization: `Bearer ${process.env.REPLICATE_API_TOKEN}`,
@@ -27,8 +34,9 @@ router.post('/song', async (req, res) => {
     const prompt = buildPrompt(genre, title, description);
 
     const response = await axios.post(
-      `${REPLICATE_API}/models/meta/musicgen/predictions`,
+      `${REPLICATE_API}/predictions`,
       {
+        version: MUSICGEN_VERSION,
         input: {
           prompt,
           model_version: 'stereo-large',
@@ -43,8 +51,21 @@ router.post('/song', async (req, res) => {
 
     res.json({ predictionId: response.data.id, status: 'starting' });
   } catch (err) {
-    console.error('[AI] Song generation start error:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Failed to start generation. Check REPLICATE_API_TOKEN.' });
+    const data = err.response?.data;
+    const status = err.response?.status;
+    console.error('[AI] Song generation start error:', data || err.message);
+
+    // Surface the cause instead of always blaming the token — a throttle means the
+    // account has no payment method, which is a very different fix.
+    if (status === 429) {
+      return res.status(429).json({
+        error: data?.detail || 'Replicate is rate limiting this account. Add a payment method at replicate.com/account/billing.',
+      });
+    }
+    if (status === 401) {
+      return res.status(401).json({ error: 'Replicate rejected the API token. Check REPLICATE_API_TOKEN in .env.' });
+    }
+    res.status(500).json({ error: data?.detail || 'Failed to start generation.' });
   }
 });
 
