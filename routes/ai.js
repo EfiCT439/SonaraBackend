@@ -100,4 +100,112 @@ router.get('/song/status/:id', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Suno — full songs WITH vocals & lyrics (far beyond MusicGen's instrumentals).
+//
+// Suno has no official public API yet, so this targets a THIRD-PARTY provider
+// (default: sunoapi.org, which mirrors Suno). It's unofficial — it can change or
+// break, and licensing depends on Suno's EULA — so treat it as a stopgap until
+// Suno's official partner API lands. Swap SUNO_API_BASE / SUNO_API_KEY in .env to
+// change providers. The key stays SERVER-SIDE (never shipped in the app bundle).
+// ─────────────────────────────────────────────────────────────────────────────
+const SUNO_BASE = process.env.SUNO_API_BASE || 'https://api.sunoapi.org';
+const SUNO_MODEL = process.env.SUNO_MODEL || 'V4_5PLUS';
+
+function sunoHeaders() {
+  return {
+    Authorization: `Bearer ${process.env.SUNO_API_KEY}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+// POST /api/ai/suno — start a Suno generation. Returns { taskId }.
+router.post('/suno', async (req, res) => {
+  try {
+    if (!process.env.SUNO_API_KEY) {
+      return res.status(500).json({ error: 'SUNO_API_KEY not set in .env' });
+    }
+    const { genre = 'Afrobeats', title = 'Untitled', description = '', instrumental = false } = req.body;
+
+    // Non-custom mode: one descriptive prompt and Suno writes the whole song
+    // (music + lyrics + vocals). Non-custom prompt is capped ~500 chars.
+    const prompt = `${genre} song titled "${title}". ${description}`.slice(0, 480).trim();
+
+    const { data } = await axios.post(
+      `${SUNO_BASE}/api/v1/generate`,
+      {
+        customMode: false,
+        instrumental: !!instrumental,
+        model: SUNO_MODEL,
+        prompt,
+        // The provider requires a callback URL even though we poll below. A
+        // placeholder is fine (we never rely on the push); set SUNO_CALLBACK_URL
+        // to a public backend endpoint if you'd rather receive push callbacks.
+        callBackUrl: process.env.SUNO_CALLBACK_URL || 'https://sonara.app/api/ai/suno/callback',
+      },
+      { headers: sunoHeaders() }
+    );
+
+    const taskId = data?.data?.taskId;
+    if (!taskId) {
+      return res.status(502).json({ error: data?.msg || 'Suno provider did not return a taskId.' });
+    }
+    res.json({ taskId, status: 'starting', provider: 'suno' });
+  } catch (err) {
+    const data = err.response?.data;
+    console.error('[AI] Suno start error:', data || err.message);
+    if (err.response?.status === 401) {
+      return res.status(401).json({ error: 'Suno provider rejected the key. Check SUNO_API_KEY in .env.' });
+    }
+    res.status(err.response?.status || 500).json({ error: data?.msg || data?.error || 'Failed to start Suno generation.' });
+  }
+});
+
+// GET /api/ai/suno/status/:taskId — poll a Suno generation.
+// Normalized to the same shape the app already expects ({ status:'succeeded',
+// audioUrl }), plus Suno extras (both tracks + cover art).
+router.get('/suno/status/:taskId', async (req, res) => {
+  try {
+    if (!process.env.SUNO_API_KEY) {
+      return res.status(500).json({ error: 'SUNO_API_KEY not set in .env' });
+    }
+    const { data } = await axios.get(
+      `${SUNO_BASE}/api/v1/generate/record-info`,
+      { headers: sunoHeaders(), params: { taskId: req.params.taskId } }
+    );
+
+    const d = data?.data || {};
+    const status = d.status;
+    const tracks = (d.response?.sunoData || [])
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        audioUrl: t.audioUrl || t.streamAudioUrl,
+        imageUrl: t.imageUrl,
+        duration: t.duration,
+      }))
+      .filter((t) => t.audioUrl);
+
+    const FAILED = ['CREATE_TASK_FAILED', 'GENERATE_AUDIO_FAILED', 'CALLBACK_EXCEPTION', 'SENSITIVE_WORD_ERROR'];
+
+    if (status === 'SUCCESS' && tracks.length) {
+      return res.json({
+        status: 'succeeded',
+        audioUrl: tracks[0].audioUrl,
+        title: tracks[0].title,
+        imageUrl: tracks[0].imageUrl,
+        songs: tracks, // Suno returns two variants
+      });
+    }
+    if (FAILED.includes(status)) {
+      return res.json({ status: 'failed', error: status });
+    }
+    // PENDING | TEXT_SUCCESS | FIRST_SUCCESS → still generating
+    res.json({ status: 'processing', stage: status });
+  } catch (err) {
+    console.error('[AI] Suno status error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
