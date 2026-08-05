@@ -8,7 +8,7 @@ services:
     runtime: node
     region: frankfurt        # matches the ACRCloud EU region
     plan: free
-    branch: feature/backend-recognition
+    branch: main
     buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /
