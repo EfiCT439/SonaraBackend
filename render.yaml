@@ -1,0 +1,39 @@
+# Render Blueprint for the Sonara backend.
+# Deploy: render.com → New + → Blueprint → pick this repo.
+# Render reads this file, then prompts you to paste each secret value below
+# (they are NOT stored in git — "sync: false" means "set it in the dashboard").
+services:
+  - type: web
+    name: sonara-backend
+    runtime: node
+    region: frankfurt        # matches the ACRCloud EU region
+    plan: free
+    branch: feature/backend-recognition
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: ACR_HOST
+        sync: false
+      - key: ACR_ACCESS_KEY
+        sync: false
+      - key: ACR_ACCESS_SECRET
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: FLW_PUBLIC_KEY
+        sync: false
+      - key: FLW_SECRET_KEY
+        sync: false
+      - key: FLW_WEBHOOK_HASH
+        sync: false
+      - key: REPLICATE_API_TOKEN
+        sync: false
+      - key: SUNO_API_BASE
+        sync: false
+      - key: SUNO_API_KEY
+        sync: false
+      - key: SUNO_CALLBACK_URL
+        sync: false
+      - key: SUNO_MODEL
+        sync: false
